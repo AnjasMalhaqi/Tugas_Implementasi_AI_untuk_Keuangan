@@ -1,0 +1,377 @@
+{
+  "name": "Tugas 4 Implementasi AI untuk Keuangan",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "09e36543-7079-43f2-8206-7d68317f9944",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        848,
+        -112
+      ],
+      "id": "72b618e4-a214-4569-9934-601e102253da",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "14ETHp2z096LAnW3ku4kz7nwUpE5RAsgvTzmFGdxqwDQ",
+          "mode": "list",
+          "cachedResultName": "Dummy Rekonsiliasi",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14ETHp2z096LAnW3ku4kz7nwUpE5RAsgvTzmFGdxqwDQ/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14ETHp2z096LAnW3ku4kz7nwUpE5RAsgvTzmFGdxqwDQ/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        -128
+      ],
+      "id": "7debdd8a-cde2-4e80-a6d0-26db239d0983",
+      "name": "Data Internal",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "MW4Sh1QpZyXfPhHP",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "1qS0IvLGetMSQ_aGl83J_ujIWUUa-ZxXj",
+          "mode": "list",
+          "cachedResultName": "Dummy Rekonsiliasi - Sheet2.csv",
+          "cachedResultUrl": "https://drive.google.com/file/d/1qS0IvLGetMSQ_aGl83J_ujIWUUa-ZxXj/view?usp=drivesdk"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        224,
+        112
+      ],
+      "id": "8d67cf51-1979-473e-8495-03afba0b0f07",
+      "name": "Data Bank",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "Zr3CC9vX1Vpp2GNU",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        112
+      ],
+      "id": "40640bbc-ef1f-499d-9db2-d4ea159772ce",
+      "name": "Mengubah File Binary"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE NODE: CLEAN BANK DATA (REVISI)\nconst results = [];\n\nfor (const item of $input.all()) {\n  const json = item.json;\n\n  // 1. Bersihkan Tanggal\n  const rawDate = (json['Tanggal Bank'] || '').toString().trim();\n  const dateParts = rawDate.split('/');\n  if (dateParts.length !== 3) continue;\n\n  const cleanDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;\n\n  // 2. PENTING: Bersihkan Angka (Hapus titik ribuan Rupiah)\n  const rawAmount = (json['Jumlah (IDR)'] || '0').toString();\n  // Regex ini menghapus apa saja yang bukan angka (termasuk titik/koma)\n  const cleanAmount = parseInt(rawAmount.replace(/[^0-9]/g, ''));\n\n  // 3. Buat Match Key\n  const matchKey = `${cleanDate}_${cleanAmount}`;\n\n  results.push({\n    json: {\n      ...json,\n      clean_date: cleanDate,\n      clean_amount: cleanAmount,\n      match_key: matchKey,\n      sumber: 'Bank'\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        112
+      ],
+      "id": "9b373b8b-3b3a-4652-bc3b-1ff98cc236b2",
+      "name": "Clean Bank Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE NODE: CLEAN INTERNAL DATA (REVISI)\nconst results = [];\n\nfor (const item of $input.all()) {\n  const json = item.json;\n\n  // 1. Filter Tipe Transaksi\n  const tipe = json['Tipe Transaksi'];\n  if (tipe !== 'Pembayaran' && tipe !== 'Pengeluaran' && tipe !== 'Penerimaan') {\n    continue; \n  }\n\n  // 2. Bersihkan Tanggal (Hapus spasi & format ulang)\n  // Asumsi format di CSV/Sheet: DD/MM/YYYY\n  const rawDate = (json['Tanggal Transaksi'] || '').toString().trim();\n  const dateParts = rawDate.split('/');\n  // Pastikan date valid\n  if (dateParts.length !== 3) continue;\n  \n  const cleanDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;\n\n  // 3. PENTING: Bersihkan Angka dari titik (.) atau koma (,)\n  // Kita ubah jadi string dulu, hapus semua yang BUKAN angka, baru parse\n  const rawAmount = (json['Jumlah (IDR)'] || '0').toString();\n  const cleanAmount = parseInt(rawAmount.replace(/[^0-9]/g, ''));\n\n  // 4. Buat Match Key\n  const matchKey = `${cleanDate}_${cleanAmount}`;\n\n  results.push({\n    json: {\n      ...json,\n      clean_date: cleanDate,\n      clean_amount: cleanAmount,\n      match_key: matchKey,\n      sumber: 'Internal'\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        -128
+      ],
+      "id": "716ecbbd-2d60-4e54-93b1-6cc5d13b87b5",
+      "name": "Filter Baris"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE NODE: ANALISA REKONSILIASI LENGKAP (tanpa Union)\nconst items = $input.all();\nconst grouped = {};\n\n// 1. Group by match_key\nfor (const item of items) {\n  const key = item.json.match_key;\n  if (!grouped[key]) {\n    grouped[key] = { sources: [], details: [] };\n  }\n  grouped[key].sources.push(item.json.sumber);\n  grouped[key].details.push(item.json);\n}\n\n// 2. Bangun hasil analisa\nconst results = [];\nfor (const [key, group] of Object.entries(grouped)) {\n  const hasInternal = group.sources.includes('Internal');\n  const hasBank = group.sources.includes('Bank');\n\n  let status, pesan, priority;\n  if (hasInternal && hasBank) {\n    status = 'MATCHED';\n    pesan = '✅ Data klop (Cocok).';\n    priority = 'Low';\n  } else if (hasInternal && !hasBank) {\n    status = 'MISSING IN BANK';\n    pesan = '⚠️ Tercatat di Internal, tapi tidak ada di Bank.';\n    priority = 'High';\n  } else if (!hasInternal && hasBank) {\n    status = 'UNRECORDED INTERNAL';\n    pesan = '⚠️ Ada di Bank, tapi tidak tercatat di Internal.';\n    priority = 'Medium';\n  }\n\n  const internal = group.details.find(d => d.sumber === 'Internal');\n  const bank = group.details.find(d => d.sumber === 'Bank');\n  const refDate = (internal || bank)?.clean_date;\n  const amount = (internal || bank)?.clean_amount;\n\n  results.push({\n    json: {\n      Tanggal: refDate,\n      Nominal: amount,\n      Status: status,\n      Pesan: pesan,\n      Prioritas: priority,\n      Internal_ID: internal?.['ID Referensi'] || 'N/A',\n      Bank_ID: bank?.['ID Transaksi Bank'] || 'N/A',\n      Deskripsi: internal?.Deskripsi || bank?.['Deskripsi Transaksi'] || '-',\n      Match_Key: key,\n      Sources: group.sources.join(' + ')\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        -112
+      ],
+      "id": "ff036314-7a62-4ba7-9926-418b7d4d3512",
+      "name": "Analisis Status"
+    },
+    {
+      "parameters": {
+        "chatId": "1237938448",
+        "text": "=🚨 **LAPORAN SELISIH KEUANGAN**  📅 Tanggal: {{ $json.Tanggal }} 💰 Nominal: Rp {{ $json.Nominal }}  ⚠️ **Status: {{ $json.Status }}** 📝 Ket: {{ $json.Pesan }}  🔍 Ref Internal: {{ $json.Internal_ID }} 🏦 Ref Bank: {{ $json.Bank_ID }} ℹ️ Desc: {{ $json.Deskripsi }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1520,
+        -128
+      ],
+      "id": "0d4481ce-c033-41c7-8e3f-58d878ee60ea",
+      "name": "Kirim Laporan Data Cocok",
+      "webhookId": "42e23858-1d31-4278-9ab2-c8fde7ceec39",
+      "credentials": {
+        "telegramApi": {
+          "id": "HRuCzVKBUdOI6ja5",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "13efad93-95ae-4f9b-baf1-1a05c5f6c506",
+              "leftValue": "={{ $json.Status }}",
+              "rightValue": "MATCHED",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1264,
+        -112
+      ],
+      "id": "c46ee618-6f19-4b29-b340-00711d0fb95b",
+      "name": "Cek Status Match"
+    },
+    {
+      "parameters": {
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        96
+      ],
+      "id": "255facc9-d510-43e7-8aba-02dbe7c7715a",
+      "name": "Tunggu 5 Menit",
+      "webhookId": "450e2248-d186-4a74-95bd-9a3c979a21d3"
+    },
+    {
+      "parameters": {
+        "chatId": "1237938448",
+        "text": "=🚨 **LAPORAN SELISIH KEUANGAN**  📅 Tanggal: {{ $json.Tanggal }} 💰 Nominal: Rp {{ $json.Nominal }}  ⚠️ **Status: {{ $json.Status }}** 📝 Ket: {{ $json.Pesan }}  🔍 Ref Internal: {{ $json.Internal_ID }} 🏦 Ref Bank: {{ $json.Bank_ID }} ℹ️ Desc: {{ $json.Deskripsi }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1728,
+        96
+      ],
+      "id": "b5d606ff-ef4e-4a4d-9845-ff84335b0925",
+      "name": "Kirim Laporan Data Tidak Cocok",
+      "webhookId": "42e23858-1d31-4278-9ab2-c8fde7ceec39",
+      "credentials": {
+        "telegramApi": {
+          "id": "HRuCzVKBUdOI6ja5",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Data Internal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Data Bank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Analisis Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Internal": {
+      "main": [
+        [
+          {
+            "node": "Filter Baris",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Bank": {
+      "main": [
+        [
+          {
+            "node": "Mengubah File Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mengubah File Binary": {
+      "main": [
+        [
+          {
+            "node": "Clean Bank Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Bank Data": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Filter Baris": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisis Status": {
+      "main": [
+        [
+          {
+            "node": "Cek Status Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cek Status Match": {
+      "main": [
+        [
+          {
+            "node": "Kirim Laporan Data Cocok",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tunggu 5 Menit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tunggu 5 Menit": {
+      "main": [
+        [
+          {
+            "node": "Kirim Laporan Data Tidak Cocok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c29986c8-ae2b-4049-8458-7aeeff2f4392",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "635aa7bef16c2133fbff3d7a56689c43f0f714234acce1d99ba494fca75abeb1"
+  },
+  "nodeGroups": [],
+  "id": "d2CojvZQlFdUd48d",
+  "tags": []
+}
